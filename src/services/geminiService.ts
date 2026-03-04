@@ -1,7 +1,24 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { type WordCategory, type CEFRLevel } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Lazy initialization to prevent crash on load if key is missing
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (aiInstance) return aiInstance;
+  
+  // Try multiple ways to get the key (Vite style and process.env style)
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY is missing! AI features will not work.");
+    // We don't throw here to prevent the whole app from crashing
+    return null;
+  }
+  
+  aiInstance = new GoogleGenAI({ apiKey });
+  return aiInstance;
+}
 
 export interface WordData {
   word: string;
@@ -15,6 +32,9 @@ export interface WordData {
 }
 
 export async function generateWord(category: WordCategory, level: CEFRLevel = 'B1'): Promise<WordData> {
+  const ai = getAI();
+  if (!ai) throw new Error("AI Key not configured");
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Generate a high-quality English vocabulary word for category "${category}" at CEFR level "${level}". 
@@ -59,6 +79,9 @@ export async function generateWord(category: WordCategory, level: CEFRLevel = 'B
 }
 
 export async function fetchWordDetails(word: string): Promise<WordData> {
+  const ai = getAI();
+  if (!ai) throw new Error("AI Key not configured");
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Provide high-quality English vocabulary details for the word "${word}". 
@@ -106,6 +129,9 @@ export interface NpcDialogue {
 }
 
 export async function generateNpcDialogue(word: string): Promise<NpcDialogue> {
+  const ai = getAI();
+  if (!ai) throw new Error("AI Key not configured");
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
     contents: `Create a template-based English learning dialogue for an NPC. 
@@ -150,6 +176,9 @@ export interface GrowthChallenge {
 }
 
 export async function generateGrowthChallenge(word: string, stage: number): Promise<GrowthChallenge> {
+  const ai = getAI();
+  if (!ai) throw new Error("AI Key not configured");
+
   const types = ['meaning', 'spelling', 'fill'];
   const type = types[stage % 3];
   
