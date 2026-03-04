@@ -119,6 +119,8 @@ export default function App() {
   const [comboState, setComboState] = useState({ count: 0, isFrenzy: false });
   const [manualWord, setManualWord] = useState('');
   const [isAddingManual, setIsAddingManual] = useState(false);
+  const [plantingEffect, setPlantingEffect] = useState<{ x: number; y: number; emoji: string } | null>(null);
+  const [plantingPlotId, setPlantingPlotId] = useState<number | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 600, height: 600 });
@@ -187,27 +189,7 @@ export default function App() {
     }
 
     if (plot.status === 'empty') {
-      const crop = CROPS[selectedCrop];
-      const cachedWords = cacheRef.current[crop.category] || [];
-      
-      if (cachedWords.length > 0) {
-        const wordData = cachedWords[0];
-        const remaining = cachedWords.slice(1);
-        const newCache = { ...cacheRef.current, [crop.category]: remaining };
-        cacheRef.current = newCache;
-        setWordCache(newCache);
-        setActiveChallenge({ type: 'planting', plotId, wordData });
-        setActiveTab('learn');
-        prefetchWord(crop.category);
-      } else {
-        setIsActionLoading(true);
-        try {
-          const wordData = await generateWord(crop.category);
-          setActiveChallenge({ type: 'planting', plotId, wordData });
-          setActiveTab('learn');
-          prefetchWord(crop.category);
-        } finally { setIsActionLoading(false); }
-      }
+      setPlantingPlotId(plotId);
     } else if (plot.status === 'planted' || plot.status === 'growing') {
       setIsActionLoading(true);
       try {
@@ -217,6 +199,35 @@ export default function App() {
       } finally { setIsActionLoading(false); }
     } else if (plot.status === 'mature') {
       setActiveChallenge({ type: 'risk', plotId });
+    }
+  };
+
+  const handlePlantSeed = async (cropId: string) => {
+    if (plantingPlotId === null) return;
+    const plotId = plantingPlotId;
+    const crop = CROPS[cropId];
+    setSelectedCrop(cropId);
+    setPlantingPlotId(null);
+
+    const cachedWords = cacheRef.current[crop.category] || [];
+    
+    if (cachedWords.length > 0) {
+      const wordData = cachedWords[0];
+      const remaining = cachedWords.slice(1);
+      const newCache = { ...cacheRef.current, [crop.category]: remaining };
+      cacheRef.current = newCache;
+      setWordCache(newCache);
+      setActiveChallenge({ type: 'planting', plotId, wordData });
+      setActiveTab('learn');
+      prefetchWord(crop.category);
+    } else {
+      setIsActionLoading(true);
+      try {
+        const wordData = await generateWord(crop.category);
+        setActiveChallenge({ type: 'planting', plotId, wordData });
+        setActiveTab('learn');
+        prefetchWord(crop.category);
+      } finally { setIsActionLoading(false); }
     }
   };
 
@@ -260,6 +271,16 @@ export default function App() {
       newState.user.totalWordsPlanted += 1;
       newState.totalWordsSeen += 1;
       setFeedback({ type: 'success', message: 'Word planted!' });
+      
+      // Trigger planting animation
+      const row = Math.floor(plotId! / 5);
+      const col = plotId! % 5;
+      setPlantingEffect({ 
+        x: col * cellSize + cellSize / 2, 
+        y: row * cellSize + cellSize / 2,
+        emoji: '🫘'
+      });
+      setTimeout(() => setPlantingEffect(null), 1500);
     } else if (type === 'growing') {
       const isFrenzy = newCombo >= 5;
       newState.plots = newState.plots.map(p => p.id === plotId ? {
@@ -290,6 +311,16 @@ export default function App() {
       newState.plots = newState.plots.map(p => p.id === plotId ? { ...p, status: 'empty', word: null, cropId: null, growthStage: 0 } : p);
       setFeedback({ type: 'success', message: `Harvested ${crop.name}! Check the Market to sell.` });
       
+      // Trigger harvest animation
+      const row = Math.floor(plotId! / 5);
+      const col = plotId! % 5;
+      setPlantingEffect({ 
+        x: col * cellSize + cellSize / 2, 
+        y: row * cellSize + cellSize / 2,
+        emoji: crop.emoji
+      });
+      setTimeout(() => setPlantingEffect(null), 1000);
+
       if (Math.random() > 0.8) {
         setActiveChallenge({ type: 'chest', reward: { coins: 50, xp: 100 } });
         return;
@@ -507,75 +538,115 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Farm Grid */}
-              <div className="relative bg-white/40 backdrop-blur-sm rounded-[40px] p-8 border border-white/30 shadow-2xl">
-                <div ref={containerRef} className="w-full aspect-square relative">
-                  <Stage width={dimensions.width} height={dimensions.height}>
-                    <Layer>
-                      {gameState.plots.map((plot, i) => {
-                        const row = Math.floor(i / 5);
-                        const col = i % 5;
-                        const x = col * cellSize;
-                        const y = row * cellSize;
-                        const crop = plot.cropId ? CROPS[plot.cropId] : null;
+              {/* Farm Grid and Seed Selection */}
+              <div className="flex flex-col lg:flex-row gap-8 items-start">
+                <div className="flex-1 relative bg-white/40 backdrop-blur-sm rounded-[40px] p-8 border border-white/30 shadow-2xl w-full">
+                  <div ref={containerRef} className="w-full aspect-square relative">
+                    <Stage width={dimensions.width} height={dimensions.height}>
+                      <Layer>
+                        {gameState.plots.map((plot, i) => {
+                          const row = Math.floor(i / 5);
+                          const col = i % 5;
+                          const x = col * cellSize;
+                          const y = row * cellSize;
+                          const crop = plot.cropId ? CROPS[plot.cropId] : null;
 
-                        return (
-                          <Group key={plot.id} x={x} y={y} onClick={() => handlePlotClick(plot.id)}>
-                            <Rect
-                              width={cellSize - 16}
-                              height={cellSize - 16}
-                              x={8}
-                              y={8}
-                              fill={!plot.isUnlocked ? '#d4cec2' : plot.status === 'empty' ? '#967d5f' : '#867055'}
-                              cornerRadius={24}
-                              opacity={plot.isUnlocked ? 1 : 0.5}
-                            />
-                            {!plot.isUnlocked && <Text text="🔒" fontSize={24} x={cellSize/2 - 12} y={cellSize/2 - 12} opacity={0.5} />}
-                            {plot.status !== 'empty' && crop && (
-                              <Group x={cellSize/2} y={cellSize/2}>
-                                <Text 
-                                  text={plot.status === 'mature' ? crop.emoji : '🌱'} 
-                                  fontSize={plot.status === 'mature' ? 48 : 32 + plot.growthStage * 8} 
-                                  x={0}
-                                  y={0}
-                                  offsetX={plot.status === 'mature' ? 24 : 16}
-                                  offsetY={plot.status === 'mature' ? 24 : 16}
-                                  align="center"
-                                  verticalAlign="middle"
-                                />
-                              </Group>
-                            )}
-                          </Group>
-                        );
-                      })}
-                    </Layer>
-                  </Stage>
-                  {isActionLoading && (
-                    <div className="absolute inset-0 bg-white/40 backdrop-blur-sm flex items-center justify-center z-10 rounded-[40px]">
-                      <Loader2 className="w-14 h-14 text-farm-green animate-spin" />
-                    </div>
-                  )}
-                </div>
-              </div>
+                          return (
+                            <Group key={plot.id} x={x} y={y} onClick={() => handlePlotClick(plot.id)}>
+                              <Rect
+                                width={cellSize - 16}
+                                height={cellSize - 16}
+                                x={8}
+                                y={8}
+                                fill={!plot.isUnlocked ? '#d4cec2' : plot.status === 'empty' ? (plantingPlotId === plot.id ? '#5A5A40' : '#967d5f') : '#867055'}
+                                cornerRadius={24}
+                                opacity={plot.isUnlocked ? 1 : 0.5}
+                                stroke={plantingPlotId === plot.id ? '#fff' : undefined}
+                                strokeWidth={plantingPlotId === plot.id ? 4 : 0}
+                              />
+                              {!plot.isUnlocked && <Text text="🔒" fontSize={24} x={cellSize/2 - 12} y={cellSize/2 - 12} opacity={0.5} />}
+                              {plot.status !== 'empty' && crop && (
+                                <Group x={cellSize/2} y={cellSize/2}>
+                                  <Text 
+                                    text={plot.status === 'mature' ? crop.emoji : '🌱'} 
+                                    fontSize={plot.status === 'mature' ? 48 : 32 + plot.growthStage * 8} 
+                                    x={0}
+                                    y={0}
+                                    offsetX={plot.status === 'mature' ? 24 : 16}
+                                    offsetY={plot.status === 'mature' ? 24 : 16}
+                                    align="center"
+                                    verticalAlign="middle"
+                                  />
+                                </Group>
+                              )}
+                            </Group>
+                          );
+                        })}
+                      </Layer>
+                    </Stage>
+                    {isActionLoading && (
+                      <div className="absolute inset-0 bg-white/40 backdrop-blur-sm flex items-center justify-center z-10 rounded-[40px]">
+                        <Loader2 className="w-14 h-14 text-farm-green animate-spin" />
+                      </div>
+                    )}
 
-              {/* Seed Selection */}
-              <div className="bg-white/90 backdrop-blur p-8 rounded-[40px] shadow-xl border border-white/20">
-                <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-stone-400 mb-6">Seed Selection</h3>
-                <div className="flex gap-4 overflow-x-auto pb-4 no-scrollbar">
-                  {Object.values(CROPS).filter(c => gameState.unlockedSeedPacks.some(p => SEED_PACKS.find(sp => sp.id === p)?.categories.includes(c.category))).map(crop => (
-                    <button
-                      key={crop.id}
-                      onClick={() => setSelectedCrop(crop.id)}
-                      className={cn(
-                        "flex-shrink-0 p-6 rounded-[32px] border transition-all flex flex-col items-center gap-2 min-w-[120px]",
-                        selectedCrop === crop.id ? "bg-farm-green/10 border-farm-green ring-4 ring-farm-green/5" : "bg-stone-50 border-stone-100 hover:border-stone-300"
+                    {/* Animation Overlay */}
+                    <AnimatePresence>
+                      {plantingEffect && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.5, y: -50 }}
+                          animate={{ opacity: 1, scale: 1.2, y: 0 }}
+                          exit={{ opacity: 0, scale: 1.5, y: -20 }}
+                          style={{
+                            position: 'absolute',
+                            left: plantingEffect.x,
+                            top: plantingEffect.y,
+                            transform: 'translate(-50%, -50%)',
+                            fontSize: '40px',
+                            zIndex: 20,
+                            pointerEvents: 'none'
+                          }}
+                        >
+                          {plantingEffect.emoji}
+                        </motion.div>
                       )}
-                    >
-                      <span className="text-4xl">{crop.emoji}</span>
-                      <span className="font-bold text-xs text-stone-800">{crop.name}</span>
-                    </button>
-                  ))}
+                    </AnimatePresence>
+                  </div>
                 </div>
+
+                {/* Side Seed Selection */}
+                <AnimatePresence>
+                  {plantingPlotId !== null && (
+                    <motion.div 
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 20 }}
+                      className="w-full lg:w-64 bg-white/90 backdrop-blur p-6 rounded-[40px] shadow-xl border border-white/20"
+                    >
+                      <div className="flex justify-between items-center mb-6">
+                        <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-stone-400">Select Seed</h3>
+                        <button onClick={() => setPlantingPlotId(null)} className="text-stone-400 hover:text-stone-600">
+                          <XCircle size={20} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
+                        {Object.values(CROPS).filter(c => gameState.unlockedSeedPacks.some(p => SEED_PACKS.find(sp => sp.id === p)?.categories.includes(c.category))).map(crop => (
+                          <button
+                            key={crop.id}
+                            onClick={() => handlePlantSeed(crop.id)}
+                            className={cn(
+                              "p-4 rounded-[24px] border transition-all flex items-center gap-3",
+                              selectedCrop === crop.id ? "bg-farm-green/10 border-farm-green" : "bg-stone-50 border-stone-100 hover:border-stone-300"
+                            )}
+                          >
+                            <span className="text-2xl">{crop.emoji}</span>
+                            <span className="font-bold text-xs text-stone-800">{crop.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           </motion.div>
